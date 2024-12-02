@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 struct dir_entry {
     char file_name[56]; // name of the file / sub-directory
     uint32_t size; // size of the file in bytes
