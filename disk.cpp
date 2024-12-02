@@ -2,8 +2,6 @@
 #include <stdint.h>
 #include "disk.h"
 
-//tyest
-
 Disk::Disk()
 {
     // first check if the disk file exists, otherwise create it.
@@ -53,7 +51,7 @@ Disk::write(unsigned block_no, uint8_t *blk)
 
 // reads one block from the disk
 int
-Disk::read(unsigned block_no, uint8_t *blk)
+Disk:: read(unsigned block_no, uint8_t *blk)
 {
     if (DEBUG)
         std::cout << "Disk::read(" << block_no << ")\n";

@@ -1,21 +1,53 @@
 #include <iostream>
+#include <cstring>
+#include <string>
+#include <iomanip>
+#include <cmath>
+#include <vector>
+#include <cstdint>
 #include "fs.h"
 
 FS::FS()
 {
     std::cout << "FS::FS()... Creating file system\n";
+    uint8_t block[BLOCK_SIZE];
+
+    disk.read(0, block);
+
+    std::memcpy(dir_entries, block, sizeof(dir_entries));
 }
 
 FS::~FS()
 {
+    uint8_t block[BLOCK_SIZE];
 
+    std::memcpy(block, dir_entries, sizeof(dir_entries));
+
+    disk.write(0, block);
+}
+
+int
+FS::find_empty_block()
+{
+    for(int i = 0; i < BLOCK_SIZE/2; i++){
+        if(fat[i] == 0x0000){
+            return i;
+        }
+    }
+    return -1;
 }
 
 // formats the disk, i.e., creates an empty file system
 int
 FS::format()
 {
-    std::cout << "FS::format()\n";
+    for(int16_t &var : fat){
+        var = 0x0000;
+    }
+    fat[0] = 0xFFFF;
+    fat[1] = 0xFFFF;
+
+    disk.write(1, reinterpret_cast<uint8_t*>(fat));
     return 0;
 }
 
@@ -23,8 +55,67 @@ FS::format()
 // written on the following rows (ended with an empty row)
 int
 FS::create(std::string filepath)
-{
-    std::cout << "FS::create(" << filepath << ")\n";
+{   
+    for(struct dir_entry var : dir_entries){
+        if(std::string(var.file_name) == filepath){
+            std::cout << "Filename already exist!";
+            return -1;
+        }
+    }  
+
+    std::string input;
+    std::string data;
+    while(std::getline(std::cin, input)){
+        if(input.empty()){
+            break;
+        }
+        data.append(input + "\n");
+    }
+
+    size_t data_size = data.size();
+    int current_index = 0;
+    int num_blocks = std::ceil((double)data_size / BLOCK_SIZE);
+    int empty_index = -1;
+    int last_empty_index = -1;
+    int first_block;
+    
+    for(int i = 0; i < num_blocks; i++){
+        std::vector<char> block(BLOCK_SIZE, 0);
+    
+        empty_index = find_empty_block();
+        if (empty_index == -1) {
+            std::cout << "No empty blocks available!" << std::endl;
+            return -1;
+        }
+        if(last_empty_index != -1){
+            fat[last_empty_index] = empty_index;
+            last_empty_index = empty_index;
+        } else {
+            first_block = empty_index;
+        }
+
+        size_t remaining_data_size = data_size - current_index;
+        size_t copy_size = std::min(remaining_data_size, (size_t)BLOCK_SIZE);
+
+        std::memcpy(block.data(), data.c_str() + current_index, copy_size);
+
+        disk.write(empty_index, reinterpret_cast<uint8_t*>(block.data()));
+
+        current_index += copy_size;
+    }
+
+    for(struct dir_entry &var : dir_entries){
+        if(var.size == UINT32_MAX){
+            std::strncpy(var.file_name, filepath.c_str(), sizeof(var.file_name) - 1);
+            var.file_name[sizeof(var.file_name) - 1] = '\0';
+            var.size = data_size;
+            var.first_blk = first_block;
+            var.type = 0;
+            var.access_rights = 0x04;
+            break;
+        }
+    }   
+
     return 0;
 }
 
@@ -39,8 +130,13 @@ FS::cat(std::string filepath)
 // ls lists the content in the currect directory (files and sub-directories)
 int
 FS::ls()
-{
-    std::cout << "FS::ls()\n";
+{   
+    std::cout << std::left << std::setw(9) << "name" << std::setw(9) << "size" << std::endl;
+    for(struct dir_entry var : dir_entries){
+        if(var.size != UINT32_MAX){
+            std::cout << std::left << std::setw(9) << std::string(var.file_name) << std::setw(9) << var.size << std::endl;
+        }
+    }   
     return 0;
 }
 
@@ -101,7 +197,7 @@ FS::cd(std::string dirpath)
 int
 FS::pwd()
 {
-    std::cout << "FS::pwd()\n";
+    std::cout << "/";
     return 0;
 }
 
