@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdint>
+#include <cstring>
 #include "disk.h"
 
 #ifndef __FS_H__
@@ -22,6 +23,10 @@ struct dir_entry {
     uint16_t first_blk; // index in the FAT for the first block of the file
     uint8_t type; // directory (1) or file (0)
     uint8_t access_rights; // read (0x04), write (0x02), execute (0x01)
+
+    dir_entry() : size(UINT32_MAX), first_blk(0), type(0), access_rights(0) {
+        std::memset(file_name, 0, sizeof(file_name));
+    }
 };
 
 class FS {
@@ -29,6 +34,10 @@ private:
     Disk disk;
     // size of a FAT entry is 2 bytes
     int16_t fat[BLOCK_SIZE/2];
+    int8_t current_working_block = 0;
+    struct dir_entry dir_entries[BLOCK_SIZE / sizeof(struct dir_entry)];
+
+    int find_empty_block();
 
 public:
     FS();
