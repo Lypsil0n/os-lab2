@@ -7,21 +7,26 @@
 #include <cstdint>
 #include "fs.h"
 
-#define MAX 0xffffffff
+#define FAT_EOF -1
 
 FS::FS()
 {
-    std::cout << "FS::FS()... Creating file system\n";
-    uint8_t block[BLOCK_SIZE];
+    uint8_t block[BLOCK_SIZE] = {0};
 
     disk.read(0, block);
 
     std::memcpy(dir_entries, block, sizeof(dir_entries));
+
+    uint8_t block2[BLOCK_SIZE] = {0};
+
+    disk.read(1, block2);
+
+    std::memcpy(fat, block2, sizeof(fat));
 }
 
 FS::~FS()
 {
-    uint8_t block[BLOCK_SIZE];
+    uint8_t block[BLOCK_SIZE] = {0};
 
     std::memcpy(block, dir_entries, sizeof(dir_entries));
 
@@ -39,6 +44,15 @@ FS::find_empty_block()
     return -1;
 }
 
+void
+FS::write_fat_to_disk(){
+    uint8_t block[BLOCK_SIZE] = {0};
+
+    std::memcpy(block, fat, sizeof(fat));
+
+    disk.write(1, block);
+}
+
 // formats the disk, i.e., creates an empty file system
 int
 FS::format()
@@ -50,6 +64,14 @@ FS::format()
     fat[1] = 0xFFFF;
 
     disk.write(1, reinterpret_cast<uint8_t*>(fat));
+
+    for(struct dir_entry &var : dir_entries){
+        std::memset(var.file_name, 0, sizeof(var.file_name));
+        var.size = 0;
+        var.first_blk = 0;
+        var.type = 0;
+        var.access_rights = 0;
+    }
     return 0;
 }
 
@@ -89,25 +111,28 @@ FS::create(std::string filepath)
             std::cout << "No empty blocks available!" << std::endl;
             return -1;
         }
-        if(last_empty_index != -1){
+
+        if(i == num_blocks - 1){
+            fat[empty_index] = FAT_EOF;
+        } else if(last_empty_index != -1){
             fat[last_empty_index] = empty_index;
             last_empty_index = empty_index;
-        } else {
-            first_block = empty_index;
         }
 
+        first_block = empty_index;
+        
         size_t remaining_data_size = data_size - current_index;
         size_t copy_size = std::min(remaining_data_size, (size_t)BLOCK_SIZE);
 
         std::memcpy(block.data(), data.c_str() + current_index, copy_size);
 
         disk.write(empty_index, reinterpret_cast<uint8_t*>(block.data()));
-
+        write_fat_to_disk();
         current_index += copy_size;
     }
 
     for(struct dir_entry &var : dir_entries){
-        if(var.size == UINT32_MAX){
+        if(!var.file_name[0]){
             std::strncpy(var.file_name, filepath.c_str(), sizeof(var.file_name) - 1);
             var.file_name[sizeof(var.file_name) - 1] = '\0';
             var.size = data_size;
@@ -125,7 +150,27 @@ FS::create(std::string filepath)
 int
 FS::cat(std::string filepath)
 {
-    std::cout << "FS::cat(" << filepath << ")\n";
+    int i = -1;
+    for(struct dir_entry var : dir_entries){
+        if(std::string(var.file_name) == filepath){
+            i = var.first_blk;
+            break;
+        }
+    }
+    if(i == -1){
+        return -1;
+    }
+    do {
+        uint8_t block[BLOCK_SIZE] = {0};
+
+        disk.read(i, block);
+
+        block[BLOCK_SIZE - 1] = '\0';
+
+        std::cout << block << std::endl;
+
+        i = fat[i];
+    } while(i != FAT_EOF);
     return 0;
 }
 
@@ -135,7 +180,7 @@ FS::ls()
 {   
     std::cout << std::left << std::setw(9) << "name" << std::setw(9) << "size" << std::endl;
     for(struct dir_entry var : dir_entries){
-        if(var.size != UINT32_MAX){
+        if(var.file_name[0]){
             std::cout << std::left << std::setw(9) << std::string(var.file_name) << std::setw(9) << var.size << std::endl;
         }
     }   
