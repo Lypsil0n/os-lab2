@@ -7,6 +7,8 @@
 #include <cstdint>
 #include "fs.h"
 
+#define MAX 0xffffffff
+
 FS::FS()
 {
     std::cout << "FS::FS()... Creating file system\n";

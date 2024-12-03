@@ -1,6 +1,7 @@
 filesystem
 disk.o
 main
+diskfile.bin
 test_script1.o
 test_script2.o
 test_script3.o

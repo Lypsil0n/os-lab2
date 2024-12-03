@@ -16,6 +16,7 @@
 #define READ 0x04
 #define WRITE 0x02
 #define EXECUTE 0x01
+#define MAX 0xffffffff
 
 struct dir_entry {
     char file_name[56]; // name of the file / sub-directory
