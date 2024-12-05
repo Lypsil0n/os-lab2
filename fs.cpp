@@ -81,6 +81,11 @@ int FS::format()
 // written on the following rows (ended with an empty row)
 int FS::create(std::string filepath)
 {
+    if (filepath.length() >= 56)
+    {
+        std::cout << "Filename to long!";
+        return -1;
+    }
     for (struct dir_entry var : dir_entries)
     {
         if (std::string(var.file_name) == filepath)
