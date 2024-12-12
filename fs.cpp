@@ -191,28 +191,10 @@ int FS::format()
 
 // create <filepath> creates a new file on the disk, the data content is
 // written on the following rows (ended with an empty row)
-<<<<<<< HEAD
 int
 FS::create(std::string filepath)
-{   
+{       
     check_file_name_exists(filepath);
-=======
-int FS::create(std::string filepath)
-{
-    if (filepath.length() >= 56)
-    {
-        std::cout << "Filename to long!";
-        return -1;
-    }
-    for (struct dir_entry var : dir_entries)
-    {
-        if (std::string(var.file_name) == filepath)
-        {
-            std::cout << "Filename already exist!";
-            return -1;
-        }
-    }
->>>>>>> e0c54aab0f0a58410567ec4f05c311a3c048a2cb
 
     std::string input;
     std::string data;
@@ -225,92 +207,18 @@ int FS::create(std::string filepath)
         data.append(input + "\n");
     }
 
-<<<<<<< HEAD
     create_file(data, filepath);
-=======
-    size_t data_size = data.size();
-    int current_index = 0;
-    int num_blocks = std::ceil((double)data_size / BLOCK_SIZE);
-    int empty_index = find_empty_block();
-    int last_empty_index = -1;
-    int first_block = empty_index;
-
-    for (int i = 0; i < num_blocks; i++)
-    {
-        std::vector<char> block(BLOCK_SIZE, 0);
-
-        if (empty_index == -1)
-        {
-            std::cout << "No empty blocks available!" << std::endl;
-            return -1;
-        }
-
-        last_empty_index = empty_index;
-        if (i == num_blocks - 1)
-        {
-            fat[empty_index] = FAT_EOF;
-        }
-        else
-        {
-            fat[last_empty_index] = empty_index + 1;
-        }
-
-        size_t remaining_data_size = data_size - current_index;
-        size_t copy_size = std::min(remaining_data_size, (size_t)BLOCK_SIZE);
-
-        std::memcpy(block.data(), data.c_str() + current_index, copy_size);
-        disk.write(empty_index, reinterpret_cast<uint8_t *>(block.data()));
-        write_fat_to_disk();
-        current_index += copy_size;
-        empty_index = find_empty_block();
-    }
-
-    for (struct dir_entry &var : dir_entries)
-    {
-        if (!var.file_name[0])
-        {
-            std::strncpy(var.file_name, filepath.c_str(), sizeof(var.file_name) - 1);
-            var.file_name[sizeof(var.file_name) - 1] = '\0';
-            var.size = data_size;
-            var.first_blk = first_block;
-            var.type = 0;
-            var.access_rights = 0x04;
-            break;
-        }
-    }
->>>>>>> e0c54aab0f0a58410567ec4f05c311a3c048a2cb
 
     return 0;
 }
 
 // cat <filepath> reads the content of a file and prints it on the screen
-<<<<<<< HEAD
 int FS::cat(std::string filepath) {   
     std::vector<std::vector<uint8_t>> read_data = read_file(filepath);
     
     if (read_data.empty()) {
         return -1;
     }
-=======
-int FS::cat(std::string filepath)
-{
-    int i = -1;
-    for (struct dir_entry var : dir_entries)
-    {
-        if (std::string(var.file_name) == filepath)
-        {
-            i = var.first_blk;
-            break;
-        }
-    }
-    if (i == -1)
-    {
-        return -1;
-    }
-    do
-    {
-        uint8_t block[BLOCK_SIZE] = {0};
->>>>>>> e0c54aab0f0a58410567ec4f05c311a3c048a2cb
 
     for (const auto& block : read_data) {
         for (uint8_t byte : block) {
@@ -318,44 +226,21 @@ int FS::cat(std::string filepath)
         }
     }
 
-<<<<<<< HEAD
     std::cout << std::endl;
-=======
-        block[BLOCK_SIZE - 1] = '\0';
-
-        std::cout << block << std::endl;
-
-        i = fat[i];
-    } while (i != FAT_EOF);
->>>>>>> e0c54aab0f0a58410567ec4f05c311a3c048a2cb
     return 0;
 }
 
 // ls lists the content in the currect directory (files and sub-directories)
-<<<<<<< HEAD
 int 
 FS::ls()
 {
     std::cout << std::endl << std::left << std::setw(9) << "name" << std::setw(8) << "size" << std::endl;
-=======
-int FS::ls()
-{
-    std::cout << std::endl
-              << std::left << std::setw(18) << "name" << std::setw(18) << "size" << std::endl;
->>>>>>> e0c54aab0f0a58410567ec4f05c311a3c048a2cb
     for (struct dir_entry var : dir_entries)
     {
         if (var.file_name[0])
         {
-<<<<<<< HEAD
             
             std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << var.size << std::endl;
-=======
-            std::string truncated_name = (std::string(var.file_name).length() > 10)
-                                             ? std::string(var.file_name).substr(0, 10) + "…"
-                                             : std::string(var.file_name);
-            std::cout << std::left << std::setw(20) << truncated_name << std::setw(20) << var.size << std::endl;
->>>>>>> e0c54aab0f0a58410567ec4f05c311a3c048a2cb
         }
     }
     std::cout << std::endl;

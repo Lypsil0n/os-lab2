@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 #include "disk.h"
 
 #ifndef __FS_H__
@@ -35,6 +36,9 @@ private:
 
     int find_empty_block();
     void write_fat_to_disk();
+    int check_file_name_exists(std::string filename);
+    int create_file(std::string data, std::string filepath);
+    std::vector<std::vector<uint8_t>> read_file(std::string filepath);
 
 public:
     FS();
