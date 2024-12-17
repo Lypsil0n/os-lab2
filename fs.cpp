@@ -56,9 +56,8 @@ void FS::write_fat_to_disk()
 
 int
 FS::check_file_name_exists(std::string filename){
-        for(struct dir_entry var : dir_entries){
+    for(struct dir_entry var : dir_entries){
         if(std::string(var.file_name) == filename){
-            std::cout << "Filename already exist!";
             return -1;
         }
     } 
@@ -100,9 +99,7 @@ FS::create_file(std::string data, std::string filepath){
     for(int i = 0; i < num_blocks; i++){
         std::vector<char> block(BLOCK_SIZE, 0);
     
-        
         if (empty_index == -1) {
-            std::cout << "No empty blocks available!" << std::endl;
             return -1;
         }
 
@@ -137,10 +134,11 @@ FS::create_file(std::string data, std::string filepath){
     return 0;
 }
 
-std::vector<std::vector<uint8_t>> 
+std::string
 FS::read_file(std::string filepath) {
     int i = -1;
-    std::vector<std::vector<uint8_t>> data;
+    std::string data;
+    std::vector<std::vector<uint8_t>> write_data;
 
     for (const struct dir_entry& var : dir_entries) {
         if (std::string(var.file_name) == filepath) {
@@ -157,10 +155,29 @@ FS::read_file(std::string filepath) {
 
             block[BLOCK_SIZE - 1] = '\0';
 
-            data.push_back(block);
+            write_data.push_back(block);
 
             i = fat[i];
         } while (i != FAT_EOF);
+    }
+
+    int actual_file_size = 0;
+    for (const struct dir_entry& var : dir_entries) {
+        if (std::string(var.file_name) == filepath) {
+            actual_file_size = var.size;
+            break;
+        }
+    }
+
+    size_t bytes_to_read = actual_file_size;
+    for (const auto& block : write_data) {
+        size_t bytes_in_block = std::min(bytes_to_read, (size_t)BLOCK_SIZE);
+        data.append(block.begin(), block.begin() + bytes_in_block);
+        bytes_to_read -= bytes_in_block;
+
+        if (bytes_to_read == 0) {
+            break;
+        }
     }
 
     return data;
@@ -207,26 +224,19 @@ FS::create(std::string filepath)
         data.append(input + "\n");
     }
 
-    create_file(data, filepath);
-
-    return 0;
+    return create_file(data, filepath);
 }
 
 // cat <filepath> reads the content of a file and prints it on the screen
 int FS::cat(std::string filepath) {   
-    std::vector<std::vector<uint8_t>> read_data = read_file(filepath);
+    std::string read_data = read_file(filepath);
     
     if (read_data.empty()) {
         return -1;
     }
 
-    for (const auto& block : read_data) {
-        for (uint8_t byte : block) {
-            std::cout << static_cast<char>(byte);
-        }
-    }
+    std::cout << read_data << std::endl;
 
-    std::cout << std::endl;
     return 0;
 }
 
@@ -234,7 +244,7 @@ int FS::cat(std::string filepath) {
 int 
 FS::ls()
 {
-    std::cout << std::endl << std::left << std::setw(9) << "name" << std::setw(8) << "size" << std::endl;
+    std::cout << std::left << std::setw(9) << "name" << std::setw(8) << "size" << std::endl;
     for (struct dir_entry var : dir_entries)
     {
         if (var.file_name[0])
@@ -243,7 +253,6 @@ FS::ls()
             std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << var.size << std::endl;
         }
     }
-    std::cout << std::endl;
     return 0;
 }
 
@@ -251,7 +260,7 @@ FS::ls()
 // <sourcepath> to a new file <destpath>
 int FS::cp(std::string sourcepath, std::string destpath)
 {
-    std::vector<std::vector<uint8_t>> read_data = read_file(sourcepath);
+    std::string read_data = read_file(sourcepath);
     std::string write_data;
     
     if(check_file_name_exists(destpath) == -1){
@@ -262,30 +271,7 @@ int FS::cp(std::string sourcepath, std::string destpath)
         return -1;
     }
 
-    int actual_file_size = 0;
-    for (const struct dir_entry& var : dir_entries) {
-        if (std::string(var.file_name) == sourcepath) {
-            actual_file_size = var.size;
-            break;
-        }
-    }
-
-    if (actual_file_size <= 0) {
-        return -1;
-    }
-
-    size_t bytes_to_read = actual_file_size;
-    for (const auto& block : read_data) {
-        size_t bytes_in_block = std::min(bytes_to_read, (size_t)BLOCK_SIZE);
-        write_data.append(block.begin(), block.begin() + bytes_in_block);
-        bytes_to_read -= bytes_in_block;
-
-        if (bytes_to_read == 0) {
-            break;
-        }
-    }
-
-    create_file(write_data, destpath);
+    create_file(read_data, destpath);
 
     return 0;
 }
@@ -312,10 +298,14 @@ int FS::mv(std::string sourcepath, std::string destpath)
 // rm <filepath> removes / deletes the file <filepath>
 int FS::rm(std::string filepath)
 {
+    // if(check_file_name_exists(filepath) == -1){
+    //     return -1;
+    // }
+
     int current_block = 0;
     int next_block = 0;
     
-    for(struct dir_entry var : dir_entries){
+    for(struct dir_entry &var : dir_entries){
         if(std::string(var.file_name) == filepath){
             current_block = var.first_blk;
             std::memset(var.file_name, 0, sizeof(var.file_name));
@@ -333,10 +323,13 @@ int FS::rm(std::string filepath)
         do{
         next_block = fat[current_block];
         fat[current_block] = 0x0000;
+        current_block = next_block;
         } while(next_block != FAT_EOF);
 
         fat[next_block] = 0x0000;
     }
+
+    write_fat_to_disk();
 
     return 0;
 }
@@ -345,7 +338,15 @@ int FS::rm(std::string filepath)
 // the end of file <filepath2>. The file <filepath1> is unchanged.
 int FS::append(std::string filepath1, std::string filepath2)
 {
-    std::cout << "FS::append(" << filepath1 << "," << filepath2 << ")\n";
+    std::string file1 = read_file(filepath1);
+    std::string file2 = read_file(filepath2);
+
+    rm(filepath2);
+
+    create_file(file2 + file1, filepath2);
+
+    write_fat_to_disk();
+
     return 0;
 }
 
