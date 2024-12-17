@@ -38,10 +38,11 @@ private:
     int find_empty_block();
     void write_fat_to_disk();
     void write_dir_to_disk(int block_nr);
+    void read_dir_from_disk(int block_nr);
     int check_name_exists(std::string filename);
     int create_file(std::string data, std::string filepath);
     std::string read_file(std::string filepath);
-    void move_to_path(std::string path_to_move);
+    int move_to_path(std::string path_to_move);
 
 public:
     FS();

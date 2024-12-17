@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <string>
+#include <sstream>
 #include <iomanip>
 #include <cmath>
 #include <vector>
@@ -11,11 +12,7 @@
 
 FS::FS()
 {
-    uint8_t block[BLOCK_SIZE] = {0};
-
-    disk.read(0, block);
-
-    std::memcpy(dir_entries, block, sizeof(dir_entries));
+    read_dir_from_disk(0);
 
     uint8_t block2[BLOCK_SIZE] = {0};
 
@@ -30,11 +27,7 @@ FS::~FS()
         cd("..");
     }
 
-    uint8_t block[BLOCK_SIZE] = {0};
-
-    std::memcpy(block, dir_entries, sizeof(dir_entries));
-
-    disk.write(0, block);
+    write_dir_to_disk(0);
 }
 
 int FS::find_empty_block()
@@ -67,26 +60,87 @@ void FS::write_dir_to_disk(int block_nr)
     disk.write(block_nr, block);
 }
 
-void FS::move_to_path(std::string path_to_move){
-    std::vector<std::string> dirs;
+void FS::read_dir_from_disk(int block_nr)
+{
+    uint8_t block[BLOCK_SIZE] = {0};
 
-    
+    disk.read(block_nr, block);
+
+    std::memcpy(dir_entries, block, sizeof(dir_entries));
+}
+
+int FS::move_to_path(std::string path_to_move){
+    std::vector<std::string> dirs; 
+    std::stringstream ss(path_to_move);
+    std::string part;
+    int block_to_return;
+
+    write_dir_to_disk(current_working_block);
+
+    while(std::getline(ss, part, '/')){
+        if(!part.empty()){
+            dirs.push_back(part);
+        }
+    }
+
+    if(path_to_move.at(0) == '/'){
+        uint8_t block[BLOCK_SIZE] = {0};
+
+        disk.read(0, block);
+
+        std::memcpy(dir_entries, block, sizeof(dir_entries));
+    }
+
+    for(std::string dir : dirs){
+        int found = 0;
+        for (const struct dir_entry var : dir_entries) {
+            if (std::string(var.file_name) == dir && var.type == 1) {
+                found = 1;
+                block_to_return = var.first_blk;
+                uint8_t block[BLOCK_SIZE] = {0};
+                disk.read(var.first_blk, block);
+                std::memcpy(dir_entries, block, sizeof(dir_entries));
+                break;
+            }
+        }
+        if(found == 0){
+            return -1;
+        }
+    }
+    return block_to_return;
 }
 
 int
 FS::check_name_exists(std::string filename){
+    int dir_found = 0;
     for(struct dir_entry var : dir_entries){
         if(std::string(var.file_name) == filename){
-            return -1;
+            if(var.type == 1){
+                dir_found = 1;
+            }
+            else {
+                return -1;
+            }
         }
     } 
-    return 0;
+    return dir_found;
 }
 
 int
 FS::create_file(std::string data, std::string filepath){
     bool isSpace = false;
-    if (filepath.length() >= 56)
+    std::string filename = filepath;
+    int block_to_return;
+
+    std::size_t pos = filepath.find_last_of("/");
+    if(pos != std::string::npos){
+        filename = filepath.substr(pos + 1);
+        filepath.erase(pos);
+        block_to_return = move_to_path(filepath);
+    }
+
+
+    if (filename.length() >= 56)
     {
         return -1;
     }
@@ -97,7 +151,7 @@ FS::create_file(std::string data, std::string filepath){
         {
             isSpace = true;
         }
-        if (std::string(var.file_name) == filepath)
+        if (std::string(var.file_name) == filename)
         {
             return -1;
         }
@@ -141,7 +195,7 @@ FS::create_file(std::string data, std::string filepath){
 
     for(struct dir_entry &var : dir_entries){
         if(!var.file_name[0]){
-            std::strncpy(var.file_name, filepath.c_str(), sizeof(var.file_name) - 1);
+            std::strncpy(var.file_name, filename.c_str(), sizeof(var.file_name) - 1);
             var.file_name[sizeof(var.file_name) - 1] = '\0';
             var.size = data_size;
             var.first_blk = first_block;
@@ -150,6 +204,12 @@ FS::create_file(std::string data, std::string filepath){
             break;
         }
     }  
+
+    if(pos != std::string::npos){
+        write_dir_to_disk(block_to_return);
+        read_dir_from_disk(current_working_block);
+    }
+
     return 0;
 }
 
@@ -276,6 +336,7 @@ FS::ls()
             
         }
     }
+
     return 0;
 }
 
@@ -284,14 +345,16 @@ FS::ls()
 int FS::cp(std::string sourcepath, std::string destpath)
 {
     std::string read_data = read_file(sourcepath);
-    std::string write_data;
-    
-    if(check_name_exists(destpath) == -1){
-        return -1;
-    };
+    int block_to_enter = check_name_exists(destpath);
 
     if (read_data.empty()) {
         return -1;
+    }
+
+    if(block_to_enter == -1){
+        return -1;
+    } else if(block_to_enter != 1){
+        destpath.append("/" + sourcepath);
     }
 
     create_file(read_data, destpath);
@@ -432,20 +495,23 @@ int FS::cd(std::string dirpath)
 
     for (const struct dir_entry var : dir_entries) {
         if (std::string(var.file_name) == dirpath && var.type == 1) {
-            current_block = var.first_blk;
-            if(std::string(var.file_name) != ".."){
-                if(current_working_block != 0){
-                    path.append("/");
+            if(var.type == 1){
+                current_block = var.first_blk;
+                if(std::string(var.file_name) != ".."){
+                    if(current_working_block != 0){
+                        path.append("/");
+                    }
+                    path.append(std::string(var.file_name));
+                } else {
+                    size_t pos = path.find_last_of("/");
+                    path.erase(pos);
+                    if(current_block == 0){
+                        path.append("/");
+                    }
                 }
-                path.append(std::string(var.file_name));
             } else {
-                size_t pos = path.find_last_of("/");
-                path.erase(pos);
-                if(current_block == 0){
-                    path.append("/");
-                }
+                return -1;
             }
-            
             break;
         }
     }
