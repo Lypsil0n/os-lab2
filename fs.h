@@ -32,13 +32,16 @@ private:
     // size of a FAT entry is 2 bytes
     int16_t fat[BLOCK_SIZE/2];
     int8_t current_working_block = 0;
+    std::string path = "/";
     struct dir_entry dir_entries[BLOCK_SIZE / sizeof(struct dir_entry)];
 
     int find_empty_block();
     void write_fat_to_disk();
-    int check_file_name_exists(std::string filename);
+    void write_dir_to_disk(int block_nr);
+    int check_name_exists(std::string filename);
     int create_file(std::string data, std::string filepath);
     std::string read_file(std::string filepath);
+    void move_to_path(std::string path_to_move);
 
 public:
     FS();

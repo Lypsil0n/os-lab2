@@ -26,6 +26,10 @@ FS::FS()
 
 FS::~FS()
 {
+    while(current_working_block != 0){
+        cd("..");
+    }
+
     uint8_t block[BLOCK_SIZE] = {0};
 
     std::memcpy(block, dir_entries, sizeof(dir_entries));
@@ -54,8 +58,23 @@ void FS::write_fat_to_disk()
     disk.write(1, block);
 }
 
+void FS::write_dir_to_disk(int block_nr)
+{
+    uint8_t block[BLOCK_SIZE] = {0};
+
+    std::memcpy(block, dir_entries, sizeof(dir_entries));
+
+    disk.write(block_nr, block);
+}
+
+void FS::move_to_path(std::string path_to_move){
+    std::vector<std::string> dirs;
+
+    
+}
+
 int
-FS::check_file_name_exists(std::string filename){
+FS::check_name_exists(std::string filename){
     for(struct dir_entry var : dir_entries){
         if(std::string(var.file_name) == filename){
             return -1;
@@ -211,7 +230,7 @@ int FS::format()
 int
 FS::create(std::string filepath)
 {       
-    check_file_name_exists(filepath);
+    check_name_exists(filepath);
 
     std::string input;
     std::string data;
@@ -244,13 +263,17 @@ int FS::cat(std::string filepath) {
 int 
 FS::ls()
 {
-    std::cout << std::left << std::setw(9) << "name" << std::setw(8) << "size" << std::endl;
+    std::cout << std::left << std::setw(9) << "name" << std::setw(8) << "type" << std::setw(8) << "size" << std::endl;
     for (struct dir_entry var : dir_entries)
     {
         if (var.file_name[0])
         {
+            if(var.type == 0){
+                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "file" << "   " << std::setw(6) << var.size << std::endl;
+            } else {
+                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "dir" << "   " << std::setw(6) << "-" << std::endl;
+            }
             
-            std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << var.size << std::endl;
         }
     }
     return 0;
@@ -263,7 +286,7 @@ int FS::cp(std::string sourcepath, std::string destpath)
     std::string read_data = read_file(sourcepath);
     std::string write_data;
     
-    if(check_file_name_exists(destpath) == -1){
+    if(check_name_exists(destpath) == -1){
         return -1;
     };
 
@@ -280,7 +303,7 @@ int FS::cp(std::string sourcepath, std::string destpath)
 // or moves the file <sourcepath> to the directory <destpath> (if dest is a directory)
 int FS::mv(std::string sourcepath, std::string destpath)
 {
-    if(check_file_name_exists(destpath) == -1){
+    if(check_name_exists(destpath) == -1){
         return -1;
     };
 
@@ -298,7 +321,7 @@ int FS::mv(std::string sourcepath, std::string destpath)
 // rm <filepath> removes / deletes the file <filepath>
 int FS::rm(std::string filepath)
 {
-    // if(check_file_name_exists(filepath) == -1){
+    // if(check_name_exists(filepath) == -1){
     //     return -1;
     // }
 
@@ -354,14 +377,93 @@ int FS::append(std::string filepath1, std::string filepath2)
 // in the current directory
 int FS::mkdir(std::string dirpath)
 {
-    std::cout << "FS::mkdir(" << dirpath << ")\n";
+    if(check_name_exists(dirpath) == -1) {
+        return -1;
+    };
+
+    int first_block = find_empty_block();
+
+    for(struct dir_entry &var : dir_entries){
+        if(!var.file_name[0]){
+            std::strncpy(var.file_name, dirpath.c_str(), sizeof(var.file_name) - 1);
+            var.file_name[sizeof(var.file_name) - 1] = '\0';
+            var.size = 0;
+            var.first_blk = first_block;
+            var.type = 1;
+            var.access_rights = 0x04;
+            break;
+        }
+    }  
+
+    uint8_t block[BLOCK_SIZE] = {0};
+
+    struct dir_entry sub_dir_entries[BLOCK_SIZE / sizeof(struct dir_entry)];
+
+    for (struct dir_entry &var : sub_dir_entries)
+    {
+        std::memset(var.file_name, 0, sizeof(var.file_name));
+        var.size = 0;
+        var.first_blk = 0;
+        var.type = 0;
+        var.access_rights = 0;
+    }
+
+    std::strncpy(sub_dir_entries[0].file_name, "..", sizeof(sub_dir_entries[0].file_name) - 1);
+    sub_dir_entries[0].file_name[sizeof(sub_dir_entries[0].file_name) - 1] = '\0';
+    sub_dir_entries[0].size = 0;
+    sub_dir_entries[0].first_blk = current_working_block;
+    sub_dir_entries[0].type = 1;
+    sub_dir_entries[0].access_rights = 0x04;
+
+    std::memcpy(block, sub_dir_entries, sizeof(sub_dir_entries));
+
+    disk.write(first_block, block);
+
+    fat[first_block] = FAT_EOF;
+    write_fat_to_disk();
+
     return 0;
 }
 
 // cd <dirpath> changes the current (working) directory to the directory named <dirpath>
 int FS::cd(std::string dirpath)
 {
-    std::cout << "FS::cd(" << dirpath << ")\n";
+    int current_block = -1;
+
+    for (const struct dir_entry var : dir_entries) {
+        if (std::string(var.file_name) == dirpath && var.type == 1) {
+            current_block = var.first_blk;
+            if(std::string(var.file_name) != ".."){
+                if(current_working_block != 0){
+                    path.append("/");
+                }
+                path.append(std::string(var.file_name));
+            } else {
+                size_t pos = path.find_last_of("/");
+                path.erase(pos);
+                if(current_block == 0){
+                    path.append("/");
+                }
+            }
+            
+            break;
+        }
+    }
+
+    if(current_block != -1){
+        write_dir_to_disk(current_working_block);
+
+        uint8_t block[BLOCK_SIZE] = {0};
+
+        disk.read(current_block, block);
+
+        std::memcpy(dir_entries, block, sizeof(dir_entries));
+
+        current_working_block = current_block;
+    } else {
+        return -1;
+    }
+
     return 0;
 }
 
@@ -369,7 +471,7 @@ int FS::cd(std::string dirpath)
 // directory, including the currect directory name
 int FS::pwd()
 {
-    std::cout << "/";
+    std::cout << path << std::endl;
     return 0;
 }
 
