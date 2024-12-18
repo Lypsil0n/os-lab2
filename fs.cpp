@@ -112,22 +112,22 @@ int FS::move_to_path(std::string path_to_move){
 
 int
 FS::check_name_exists(std::string filename){
-    int dir_found = 0;
+    int block_to_enter = 1;
     for(struct dir_entry var : dir_entries){
         if(std::string(var.file_name) == filename){
             if(var.type == 1){
-                dir_found = 1;
+                block_to_enter = var.first_blk;
             }
             else {
                 return -1;
             }
         }
     } 
-    return dir_found;
+    return block_to_enter;
 }
 
 int
-FS::create_file(std::string data, std::string filepath){
+FS::create_file(std::string data, std::string filepath, std::string og_name = ""){
     bool isSpace = false;
     std::string filename = filepath;
     int block_to_return;
@@ -137,8 +137,13 @@ FS::create_file(std::string data, std::string filepath){
         filename = filepath.substr(pos + 1);
         filepath.erase(pos);
         block_to_return = move_to_path(filepath);
+        int check_file = check_name_exists(filename);
+        if(og_name != "" && check_file != 1){
+            block_to_return = check_file;
+            read_dir_from_disk(block_to_return);
+            filename = og_name;
+        }
     }
-
 
     if (filename.length() >= 56)
     {
@@ -357,7 +362,7 @@ int FS::cp(std::string sourcepath, std::string destpath)
         destpath.append("/" + sourcepath);
     }
 
-    create_file(read_data, destpath);
+    create_file(read_data, destpath, sourcepath);
 
     return 0;
 }
@@ -366,16 +371,65 @@ int FS::cp(std::string sourcepath, std::string destpath)
 // or moves the file <sourcepath> to the directory <destpath> (if dest is a directory)
 int FS::mv(std::string sourcepath, std::string destpath)
 {
-    if(check_name_exists(destpath) == -1){
-        return -1;
-    };
+    struct dir_entry old_entry;
+    int i = 0;
 
-    for(struct dir_entry &var : dir_entries){
-        if(std::string(var.file_name) == sourcepath){
-            std::strncpy(var.file_name, destpath.c_str(), sizeof(var.file_name) - 1);
-            var.file_name[sizeof(var.file_name) - 1] = '\0';
+    for (struct dir_entry &var : dir_entries) {
+        if (std::string(var.file_name) == sourcepath) {
+            old_entry = var;
+            std::memset(var.file_name, 0, sizeof(var.file_name));
+            var.size = 0;
+            var.first_blk = 0;
+            var.type = 0;
+            var.access_rights = 0;
             break;
         }
+        i++;
+    }
+    write_dir_to_disk(current_working_block);
+
+    std::string filename = destpath;
+    std::size_t pos = destpath.find_last_of("/");
+    int block_to_return;
+    if(pos != std::string::npos){
+        filename = destpath.substr(pos + 1);
+        destpath.erase(pos);
+        block_to_return = move_to_path(destpath);
+    }
+    
+
+    int block_to_enter = check_name_exists(filename);
+
+    if(block_to_enter == -1) {
+        return -1;
+    } else if(block_to_enter != 1) {
+        read_dir_from_disk(block_to_enter);
+        if(check_name_exists(sourcepath) == 1){
+            for(struct dir_entry &var : dir_entries){
+                if(!var.file_name[0]){
+                    var = old_entry;
+                    break;
+                }
+            }
+            write_dir_to_disk(block_to_enter);
+        } else {
+            read_dir_from_disk(current_working_block);
+            return -1;
+        }
+        read_dir_from_disk(current_working_block);
+    } else if(block_to_enter == 1) {
+        for(struct dir_entry &var : dir_entries){
+            if(!var.file_name[0]){
+                var = old_entry;
+                std::strncpy(var.file_name, filename.c_str(), sizeof(var.file_name) - 1);
+                var.file_name[sizeof(var.file_name) - 1] = '\0';
+                break;
+            }
+        }
+        write_dir_to_disk(block_to_return);
+        read_dir_from_disk(current_working_block);
+    } else {
+        dir_entries[i] = old_entry;
     }
 
     return 0;
