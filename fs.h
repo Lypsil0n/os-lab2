@@ -32,7 +32,6 @@ private:
     // size of a FAT entry is 2 bytes
     int16_t fat[BLOCK_SIZE/2];
     int8_t current_working_block = 0;
-    std::string path = "/";
     struct dir_entry dir_entries[BLOCK_SIZE / sizeof(struct dir_entry)];
 
     int find_empty_block();
