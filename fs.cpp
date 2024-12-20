@@ -127,55 +127,31 @@ FS::check_name_exists(std::string filename){
     return block_to_enter;
 }
 
-int
-FS::create_file(std::string data, std::string filepath, std::string og_name = ""){
-    bool isSpace = false;
-    std::string filename = filepath;
-    int block_to_return;
-    std::size_t pos;
-
-    if(filepath != "/"){
-        pos = filepath.find_last_of("/");
-        if(pos != std::string::npos){
-            filename = filepath.substr(pos + 1);
-            filepath.erase(pos);
-            if(filepath == ""){
-                filepath = "/";
-            }
-            block_to_return = move_to_path(filepath);
-            int check_file = check_name_exists(filename);
-            if(og_name != "" && check_file != 1){
-                block_to_return = check_file;
-                read_dir_from_disk(block_to_return);
-                filename = og_name;
+bool 
+FS::check_permissions(uint8_t permissions, uint16_t block, bool is_dir){
+    if(block != 0){
+        bool allowed = false;
+        if(is_dir){
+            write_dir_to_disk(block);
+            read_dir_from_disk(dir_entries[0].first_blk);
+        }
+        for(struct dir_entry var : dir_entries) {
+            if(var.first_blk == block){
+                allowed = permissions & var.access_rights;
+                break;
             }
         }
+        if(is_dir){
+            read_dir_from_disk(block);
+        }
+        return allowed;
     } else {
-        read_dir_from_disk(0);
+        return true;
     }
+}
 
-    if (filename.length() >= 56)
-    {
-        return -1;
-    }
-
-    for (struct dir_entry var : dir_entries)
-    {
-        if (!var.file_name[0])
-        {
-            isSpace = true;
-        }
-        if (std::string(var.file_name) == filename)
-        {
-            return -1;
-        }
-    }
-
-    if (!isSpace)
-    {
-        return -1;
-    }
-
+int 
+FS::write_data_to_disk(std::string data){
     size_t data_size = data.size();
     int current_index = 0;
     int num_blocks = std::ceil((double)data_size / BLOCK_SIZE);
@@ -207,14 +183,74 @@ FS::create_file(std::string data, std::string filepath, std::string og_name = ""
         empty_index = find_empty_block();
     }
 
+    return first_block;
+}
+
+int
+FS::create_file(std::string data, std::string filepath, std::string og_name = "", uint8_t permissions = 0x7){
+    bool isSpace = false;
+    std::string filename = filepath;
+    int block_to_return = current_working_block;
+    std::size_t pos;
+
+    if(filepath != "/"){
+        pos = filepath.find_last_of("/");
+        if(pos != std::string::npos){
+            filename = filepath.substr(pos + 1);
+            filepath.erase(pos);
+            if(filepath == ""){
+                filepath = "/";
+            }
+            block_to_return = move_to_path(filepath);
+        }
+        int check_file = check_name_exists(filename);
+        if(og_name != "" && check_file != 1){
+            block_to_return = check_file;
+            read_dir_from_disk(block_to_return);
+            filename = og_name;
+        } else if(check_file == -1){
+            return -1;
+        }
+    } else {
+        read_dir_from_disk(block_to_return);
+    }
+
+    if(!check_permissions(2, block_to_return, 1)){
+        return -1;
+    };
+
+    if (filename.length() >= 56)
+    {
+        return -1;
+    }
+
+    for (struct dir_entry var : dir_entries)
+    {
+        if (!var.file_name[0])
+        {
+            isSpace = true;
+        }
+        if (std::string(var.file_name) == filename)
+        {
+            return -1;
+        }
+    }
+
+    if (!isSpace)
+    {
+        return -1;
+    }
+
+    int first_block = write_data_to_disk(data);
+
     for(struct dir_entry &var : dir_entries){
         if(!var.file_name[0]){
             std::strncpy(var.file_name, filename.c_str(), sizeof(var.file_name) - 1);
             var.file_name[sizeof(var.file_name) - 1] = '\0';
-            var.size = data_size;
+            var.size = data.size();
             var.first_blk = first_block;
             var.type = 0;
-            var.access_rights = 0x04;
+            var.access_rights = permissions;
             break;
         }
     }  
@@ -228,7 +264,7 @@ FS::create_file(std::string data, std::string filepath, std::string og_name = ""
 }
 
 std::string
-FS::read_file(std::string filepath) {
+FS::read_file(std::string filepath, bool skip_permissions = false) {
     int i = -1;
     std::string data;
     std::vector<std::vector<uint8_t>> write_data;
@@ -236,6 +272,10 @@ FS::read_file(std::string filepath) {
     for (const struct dir_entry& var : dir_entries) {
         if (std::string(var.file_name) == filepath) {
             i = var.first_blk;
+            std::cout << var.access_rights << std::endl;
+            if(!check_permissions(0x04, i, 0) && !skip_permissions){
+                return "";
+            }
             break;
         }
     }
@@ -324,7 +364,7 @@ FS::create(std::string filepath)
 int FS::cat(std::string filepath) {   
     std::string read_data = read_file(filepath);
     
-    if (read_data.empty()) {
+    if (read_data.empty() || read_data == "") {
         return -1;
     }
 
@@ -337,15 +377,25 @@ int FS::cat(std::string filepath) {
 int 
 FS::ls()
 {
-    std::cout << std::left << std::setw(9) << "name" << std::setw(8) << "type" << std::setw(8) << "size" << std::endl;
+    std::cout << std::left << std::setw(9) << "name" << std::setw(8) << "type" << std::setw(8) << "accessrights" << std::setw(8) << "size" << std::endl;
     for (struct dir_entry var : dir_entries)
     {
+        std::string permissions = "---";
         if (var.file_name[0] && std::string(var.file_name) != "..")
-        {
+        {   
+            if(var.access_rights & 0x01){
+                permissions[2] = 'x';
+            }
+            if(var.access_rights & 0x02){
+                permissions[1] = 'w';
+            }
+            if(var.access_rights & 0x04){
+                permissions[0] = 'r';
+            }
             if(var.type == 0){
-                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "file" << "   " << std::setw(6) << var.size << std::endl;
+                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "file" << "   " << std::setw(6) << permissions << std::setw(6) << var.size << std::endl;
             } else {
-                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "dir" << "   " << std::setw(6) << "-" << std::endl;
+                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "dir" << "   " << std::setw(6) << permissions << std::setw(6) << "-" << std::endl;
             }
             
         }
@@ -476,9 +526,9 @@ int FS::rm(std::string filepath)
         fat[current_block] = 0x0000;
     } else {
         do{
-        next_block = fat[current_block];
-        fat[current_block] = 0x0000;
-        current_block = next_block;
+            next_block = fat[current_block];
+            fat[current_block] = 0x0000;
+            current_block = next_block;
         } while(next_block != FAT_EOF);
 
         fat[next_block] = 0x0000;
@@ -494,12 +544,29 @@ int FS::rm(std::string filepath)
 int FS::append(std::string filepath1, std::string filepath2)
 {
     std::string file1 = read_file(filepath1);
-    std::string file2 = read_file(filepath2);
 
-    rm(filepath2);
+    if(file1 == ""){
+        return -1;
+    }
 
-    create_file(file2 + file1, filepath2);
+    for(struct dir_entry &var : dir_entries){
+        if(std::string(var.file_name) == filepath2){
+            if(!check_permissions(2, var.first_blk, 0)){
+                return -1;
+            }
+            var.size += file1.size();
+            int current_block = var.first_blk;
 
+            while(current_block =! FAT_EOF){
+                current_block = fat[current_block];
+            }
+
+            fat[current_block] = write_data_to_disk(file1);
+            break;
+        }
+    }
+
+    write_dir_to_disk(current_working_block);
     write_fat_to_disk();
 
     return 0;
@@ -543,7 +610,7 @@ int FS::mkdir(std::string dirpath)
             var.size = 0;
             var.first_blk = first_block;
             var.type = 1;
-            var.access_rights = 0x04;
+            var.access_rights =  0x07;
             break;
         }
     }  
@@ -566,7 +633,7 @@ int FS::mkdir(std::string dirpath)
     sub_dir_entries[0].size = 0;
     sub_dir_entries[0].first_blk = block_to_return;
     sub_dir_entries[0].type = 1;
-    sub_dir_entries[0].access_rights = 0x04;
+    sub_dir_entries[0].access_rights = 0x07;
 
     std::memcpy(block, sub_dir_entries, sizeof(sub_dir_entries));
 
@@ -625,6 +692,11 @@ int FS::pwd()
 // file <filepath> to <accessrights>.
 int FS::chmod(std::string accessrights, std::string filepath)
 {
-    std::cout << "FS::chmod(" << accessrights << "," << filepath << ")\n";
+    for(struct dir_entry &var : dir_entries){
+        if(std::string(var.file_name) == filepath){
+            var.access_rights = std::stoi(accessrights);
+            break;
+        }
+    }
     return 0;
 }
