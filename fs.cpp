@@ -118,9 +118,11 @@ FS::check_name_exists(std::string filename){
         if(std::string(var.file_name) == filename){
             if(var.type == 1){
                 block_to_enter = var.first_blk;
+                break;
             }
             else {
-                return -1;
+                block_to_enter = -1;
+                break;
             }
         }
     } 
@@ -187,7 +189,7 @@ FS::write_data_to_disk(std::string data){
 }
 
 int
-FS::create_file(std::string data, std::string filepath, std::string og_name = "", uint8_t permissions = 0x7){
+FS::create_file(std::string data, std::string filepath, std::string og_name = "", uint8_t permissions = 0x6){
     bool isSpace = false;
     std::string filename = filepath;
     int block_to_return = current_working_block;
@@ -264,7 +266,7 @@ FS::create_file(std::string data, std::string filepath, std::string og_name = ""
 }
 
 std::string
-FS::read_file(std::string filepath, bool skip_permissions = false) {
+FS::read_file(std::string filepath) {
     int i = -1;
     std::string data;
     std::vector<std::vector<uint8_t>> write_data;
@@ -272,8 +274,7 @@ FS::read_file(std::string filepath, bool skip_permissions = false) {
     for (const struct dir_entry& var : dir_entries) {
         if (std::string(var.file_name) == filepath) {
             i = var.first_blk;
-            std::cout << var.access_rights << std::endl;
-            if(!check_permissions(0x04, i, 0) && !skip_permissions){
+            if(!check_permissions(0x04, i, 0)){
                 return "";
             }
             break;
@@ -303,14 +304,9 @@ FS::read_file(std::string filepath, bool skip_permissions = false) {
     }
 
     size_t bytes_to_read = actual_file_size;
-    for (const auto& block : write_data) {
+    for (const auto block : write_data) {
         size_t bytes_in_block = std::min(bytes_to_read, (size_t)BLOCK_SIZE);
         data.append(block.begin(), block.begin() + bytes_in_block);
-        bytes_to_read -= bytes_in_block;
-
-        if (bytes_to_read == 0) {
-            break;
-        }
     }
 
     return data;
@@ -363,8 +359,12 @@ FS::create(std::string filepath)
 // cat <filepath> reads the content of a file and prints it on the screen
 int FS::cat(std::string filepath) {   
     std::string read_data = read_file(filepath);
-    
-    if (read_data.empty() || read_data == "") {
+
+    if(read_data == ""){
+        return -1;
+    }
+
+    if (read_data.empty()) {
         return -1;
     }
 
@@ -393,9 +393,9 @@ FS::ls()
                 permissions[0] = 'r';
             }
             if(var.type == 0){
-                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "file" << "   " << std::setw(6) << permissions << std::setw(6) << var.size << std::endl;
+                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "file" << "   " << std::setw(6) << permissions << std::setw(6) << "   " << var.size << std::endl;
             } else {
-                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "dir" << "   " << std::setw(6) << permissions << std::setw(6) << "-" << std::endl;
+                std::cout << std::left << std::setw(7) << var.file_name << "   " << std::setw(6) << "dir" << "   " << std::setw(6) << permissions << std::setw(6) << "   " << "-" << std::endl;
             }
             
         }
@@ -434,17 +434,11 @@ int FS::mv(std::string sourcepath, std::string destpath)
     int i = 0;
     int block_to_enter;
     std::string filename = destpath;
-    int block_to_return;
+    int block_to_return = current_working_block;
 
     for (struct dir_entry &var : dir_entries) {
         if (std::string(var.file_name) == sourcepath) {
             old_entry = var;
-            std::memset(var.file_name, 0, sizeof(var.file_name));
-            var.size = 0;
-            var.first_blk = 0;
-            var.type = 0;
-            var.access_rights = 0;
-            break;
         }
         i++;
     }
@@ -497,15 +491,26 @@ int FS::mv(std::string sourcepath, std::string destpath)
         dir_entries[i] = old_entry;
     }
 
+    for (struct dir_entry &var : dir_entries) {
+        if (std::string(var.file_name) == sourcepath) {
+            std::memset(var.file_name, 0, sizeof(var.file_name));
+            var.size = 0;
+            var.first_blk = 0;
+            var.type = 0;
+            var.access_rights = 0;
+        }
+    }
+
+
     return 0;
 }
 
 // rm <filepath> removes / deletes the file <filepath>
 int FS::rm(std::string filepath)
 {
-    // if(check_name_exists(filepath) == -1){
-    //     return -1;
-    // }
+    if(check_name_exists(filepath) == 1){
+        return -1;
+    }
 
     int current_block = 0;
     int next_block = 0;
@@ -557,7 +562,7 @@ int FS::append(std::string filepath1, std::string filepath2)
             var.size += file1.size();
             int current_block = var.first_blk;
 
-            while(current_block =! FAT_EOF){
+            while(fat[current_block] != FAT_EOF){
                 current_block = fat[current_block];
             }
 
@@ -668,21 +673,26 @@ int FS::pwd()
     int temp_child = current_working_block;
     std::string path = "";
     write_dir_to_disk(current_working_block);
-    do {
-        temp_parent = dir_entries[0].first_blk;
-        read_dir_from_disk(temp_parent);
-        for(struct dir_entry var : dir_entries){
-            if(var.first_blk == temp_child){
-                std::string temp_path = "/" + std::string(var.file_name);
-                temp_path += path;
-                path = temp_path;
-                temp_child = temp_parent;
-                break;
+    if(temp_child != 0){
+        do {
+            temp_parent = dir_entries[0].first_blk;
+            read_dir_from_disk(temp_parent);
+            for(struct dir_entry var : dir_entries){
+                if(var.first_blk == temp_child){
+                    std::string temp_path = "/" + std::string(var.file_name);
+                    temp_path += path;
+                    path = temp_path;
+                    temp_child = temp_parent;
+                    break;
+                }
             }
-        }
-        
-    } while(temp_parent != 0);
-    read_dir_from_disk(current_working_block);
+            
+        } while(temp_parent != 0);
+        read_dir_from_disk(current_working_block);
+    } else {
+        path = "/";
+    }
+
     std::cout << path << std::endl;
 
     return 0;

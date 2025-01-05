@@ -40,7 +40,7 @@ private:
     void read_dir_from_disk(int block_nr);
     int check_name_exists(std::string filename);
     int create_file(std::string data, std::string filepath, std::string og_name, uint8_t permissions);
-    std::string read_file(std::string filepath, bool skip_permissions);
+    std::string read_file(std::string filepath);
     int move_to_path(std::string path_to_move);
     bool check_permissions(uint8_t permissions, uint16_t block, bool is_dir);
     int write_data_to_disk(std::string data);
