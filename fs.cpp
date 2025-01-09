@@ -340,8 +340,6 @@ int FS::format()
 int
 FS::create(std::string filepath)
 {       
-    check_name_exists(filepath);
-
     std::string input;
     std::string data;
     while (std::getline(std::cin, input))
