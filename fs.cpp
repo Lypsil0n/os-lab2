@@ -84,11 +84,7 @@ int FS::move_to_path(std::string path_to_move){
     }
 
     if(path_to_move.at(0) == '/'){
-        uint8_t block[BLOCK_SIZE] = {0};
-
-        disk.read(0, block);
-
-        std::memcpy(dir_entries, block, sizeof(dir_entries));
+        read_dir_from_disk(0);
     }
 
     for(std::string dir : dirs){
@@ -97,9 +93,7 @@ int FS::move_to_path(std::string path_to_move){
             if (std::string(var.file_name) == dir && var.type == 1) {
                 found = 1;
                 block_to_return = var.first_blk;
-                uint8_t block[BLOCK_SIZE] = {0};
-                disk.read(var.first_blk, block);
-                std::memcpy(dir_entries, block, sizeof(dir_entries));
+                read_dir_from_disk(var.first_blk);
                 break;
             }
         }
@@ -131,6 +125,7 @@ FS::check_name_exists(std::string filename){
 
 bool 
 FS::check_permissions(uint8_t permissions, uint16_t block, bool is_dir){
+    std::cout << ""; // DO NOT REMOVE, DOES NOT WORK WITHOUT. Most likely compiler optimization side effects.
     if(block != 0){
         bool allowed = false;
         if(is_dir){
@@ -426,7 +421,6 @@ int FS::cp(std::string sourcepath, std::string destpath)
 
 // mv <sourcepath> <destpath> renames the file <sourcepath> to the name <destpath>,
 // or moves the file <sourcepath> to the directory <destpath> (if dest is a directory)
-// dubbelkolla för write dir to disk i slutet
 int FS::mv(std::string sourcepath, std::string destpath)
 {
     struct dir_entry old_entry;
@@ -459,6 +453,7 @@ int FS::mv(std::string sourcepath, std::string destpath)
     }
 
     if(block_to_enter == -1) {
+        read_dir_from_disk(current_working_block);
         return -1;
     } else if(block_to_enter != 1) {
         read_dir_from_disk(block_to_enter);
@@ -474,7 +469,6 @@ int FS::mv(std::string sourcepath, std::string destpath)
             read_dir_from_disk(current_working_block);
             return -1;
         }
-        read_dir_from_disk(current_working_block);
     } else if(block_to_enter == 1) {
         for(struct dir_entry &var : dir_entries){
             if(!var.file_name[0]){
@@ -484,10 +478,10 @@ int FS::mv(std::string sourcepath, std::string destpath)
                 break;
             }
         }
-        read_dir_from_disk(current_working_block);
-    } else {
-        dir_entries[i] = old_entry;
+        write_dir_to_disk(block_to_return);
     }
+
+    read_dir_from_disk(current_working_block);
 
     for (struct dir_entry &var : dir_entries) {
         if (std::string(var.file_name) == sourcepath) {
@@ -498,8 +492,8 @@ int FS::mv(std::string sourcepath, std::string destpath)
             var.access_rights = 0;
         }
     }
-    write_dir_to_disk(block_to_return);
-
+    write_dir_to_disk(current_working_block);
+    
 
     return 0;
 }
@@ -545,7 +539,6 @@ int FS::rm(std::string filepath)
 
 // append <filepath1> <filepath2> appends the contents of file <filepath1> to
 // the end of file <filepath2>. The file <filepath1> is unchanged.
-// kolla ifall blocket fylls upp fall
 int FS::append(std::string filepath1, std::string filepath2)
 {
     std::string file1 = read_file(filepath1);
@@ -579,7 +572,6 @@ int FS::append(std::string filepath1, std::string filepath2)
 
 // mkdir <dirpath> creates a new sub-directory with the name <dirpath>
 // in the current directory
-// fixa write permissions
 int FS::mkdir(std::string dirpath)
 {
     int block_to_enter;
@@ -604,6 +596,10 @@ int FS::mkdir(std::string dirpath)
     } else {
         return -1;
     }
+
+    if(!check_permissions(2, block_to_return, 1)){
+        return -1;
+    };
 
     if(block_to_enter == -1) {
         return -1;
