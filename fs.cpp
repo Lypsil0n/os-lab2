@@ -375,7 +375,7 @@ int FS::cat(std::string filepath) {
 int 
 FS::ls()
 {
-    std::cout << std::left << std::setw(9) << "name" << std::setw(8) << "type" << std::setw(8) << "accessrights" << std::setw(8) << "size" << std::endl;
+    std::cout << std::left << std::setw(9) << "name" << std::setw(8) << "type" << std::setw(8) << "accessrights" << "   "<< std::setw(8) << "size" << std::endl;
     for (struct dir_entry var : dir_entries)
     {
         std::string permissions = "---";
@@ -426,6 +426,7 @@ int FS::cp(std::string sourcepath, std::string destpath)
 
 // mv <sourcepath> <destpath> renames the file <sourcepath> to the name <destpath>,
 // or moves the file <sourcepath> to the directory <destpath> (if dest is a directory)
+// dubbelkolla för write dir to disk i slutet
 int FS::mv(std::string sourcepath, std::string destpath)
 {
     struct dir_entry old_entry;
@@ -483,7 +484,6 @@ int FS::mv(std::string sourcepath, std::string destpath)
                 break;
             }
         }
-        write_dir_to_disk(block_to_return);
         read_dir_from_disk(current_working_block);
     } else {
         dir_entries[i] = old_entry;
@@ -498,6 +498,7 @@ int FS::mv(std::string sourcepath, std::string destpath)
             var.access_rights = 0;
         }
     }
+    write_dir_to_disk(block_to_return);
 
 
     return 0;
@@ -544,6 +545,7 @@ int FS::rm(std::string filepath)
 
 // append <filepath1> <filepath2> appends the contents of file <filepath1> to
 // the end of file <filepath2>. The file <filepath1> is unchanged.
+// kolla ifall blocket fylls upp fall
 int FS::append(std::string filepath1, std::string filepath2)
 {
     std::string file1 = read_file(filepath1);
@@ -577,6 +579,7 @@ int FS::append(std::string filepath1, std::string filepath2)
 
 // mkdir <dirpath> creates a new sub-directory with the name <dirpath>
 // in the current directory
+// fixa write permissions
 int FS::mkdir(std::string dirpath)
 {
     int block_to_enter;
